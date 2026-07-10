@@ -3,4 +3,4 @@
 
 ## Introduction
 This is the code powering the in-situ PL we built in the summer of 2026. Currently, very much a work in progress!
-# Hi thi is Melika
+# Hi this is Melika
