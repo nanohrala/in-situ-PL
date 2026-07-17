@@ -42,7 +42,7 @@ def increasingNoisyGaussian(x, noiseLevel, timeElapsed):
     width = np.std(x)/2
     output += np.exp( -((x-center)/width)**2  )
     output += rng.random(len(x))*noiseLevel
-    timeScalar = 5 - (5*np.exp(-timeElapsed))
+    timeScalar = 5 - (5*np.exp(-0.25*timeElapsed))
     return output*timeScalar
 
 xx = np.linspace(200, 800, 1024) #test data
