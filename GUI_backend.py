@@ -23,8 +23,6 @@ plt.rcParams['figure.figsize'] = (6,4)
 plt.rcParams['figure.dpi'] = 96 #the dpi is default because we need to plot quickly! 
 plt.rcParams['legend.frameon'] = False
 
-%matplotlib widget
-
 rng = np.random.default_rng()
 
 def noisyGaussian(x, noiseLevel):
