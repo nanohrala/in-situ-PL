@@ -7,6 +7,11 @@ import ipywidgets as widgets
 from IPython.display import display
 from cycler import cycler
 
+import seabreeze
+seabreeze.use('pyseabreeze')
+import seabreeze.cseabreeze as csb
+from seabreeze.spectrometers import list_devices, Spectrometer
+
 blues_balanced = [ #a nice color scheme
     '#0F4C81',  
     '#1A7CB0',  
@@ -23,34 +28,10 @@ plt.rcParams['figure.figsize'] = (6,4)
 plt.rcParams['figure.dpi'] = 96 #the dpi is default because we need to plot quickly! 
 plt.rcParams['legend.frameon'] = False
 
-rng = np.random.default_rng()
-
-def noisyGaussian(x, noiseLevel):
-    '''A quick function that simulates what a live might look like in the PLQY.'''
-    output = np.zeros_like(x)
-    center = np.mean(x)
-    width = np.std(x)/2
-    output += np.exp( -((x-center)/width)**2  )
-    output += rng.random(len(x))*noiseLevel
-    return output
-
-def increasingNoisyGaussian(x, noiseLevel, timeElapsed):
-    '''A quick function that simulates what a live might look like in the PLQY.
-    Now also includes a growth factor.'''
-    output = np.zeros_like(x)
-    center = np.mean(x)
-    width = np.std(x)/2
-    output += np.exp( -((x-center)/width)**2  )
-    output += rng.random(len(x))*noiseLevel
-    timeScalar = 5 - (5*np.exp(-0.25*timeElapsed))
-    return output*timeScalar
-
-xx = np.linspace(200, 800, 1024) #test data
-
 class PL_GUI: #The class that contains the GUI. Currently pairs to X data; will eventually pair to a spectrometer
     #(In the future, this means we can have 2 GUIs easily open for absorbance studies!)
-    def __init__(self, xx):
-        self.xx = xx
+    def __init__(self, spectrometer):
+        self.spec = spectrometer
 
         # initalize variables
         self.live = False 
@@ -58,7 +39,6 @@ class PL_GUI: #The class that contains the GUI. Currently pairs to X data; will 
         self.loop_thread = None
         self.liveCount = 1
         self.staticCount = 1
-        self.live_data = [np.insert(self.xx, 0, np.inf)]
 
         #create the layout parameters
         column_layout = widgets.Layout(flex='1', padding='5px', display='flex', flex_flow='column')
@@ -101,16 +81,25 @@ class PL_GUI: #The class that contains the GUI. Currently pairs to X data; will 
         #create storage variables
         self.exposureTime = self.exposure.value
         self.noOfAv = self.noOfAv_input.value
-        
+
+        #Grab data to display from spectrometer
+        self.wavelengths = self.spec.wavelengths()
+        ydata = self.requestData()
+
+        self.live_data = [np.insert(self.wavelengths, 0, np.inf)]
+
+
         #create the plot
         plt.ioff() #disable standard behavior; prevents two plots from appearing
         plt.close('all') 
         self.fig, self.ax = plt.subplots(figsize=(10, 4)) #create the plot
         self.ax.set_xlabel('Wavelength (nm)')
         self.ax.set_ylabel('Intensity (a.u.)')
-        self.data, = self.ax.plot(self.xx, noisyGaussian(self.xx, 0.1), label='Live', color='#062346') #populate inital data
+        self.data, = self.ax.plot(self.wavelengths, ydata, label='Live', color='#062346') #populate inital data
         self.ax.legend()
         plt.ion() # Restore standard behavior
+
+
 
         #create the widget layout
         col1 = widgets.VBox([self.exposure, self.noOfAv_input], layout=column_layout)
@@ -173,22 +162,16 @@ class PL_GUI: #The class that contains the GUI. Currently pairs to X data; will 
             self.staticCount += 1
     
     def requestData(self):
-        '''Function to request data from the spectrometer with the current GUI settings. Currently, simulates data.'''
-        out = np.zeros_like(self.xx)
-        time.sleep((self.exposureTime/1000)*self.noOfAv) #simulate the time required for the spectrometer to collect the dataset
-        if self.live:
-            for _ in range(self.noOfAv):
-                out += increasingNoisyGaussian(self.xx, 1/(self.exposureTime*0.1), time.time()-self.live_start_time)
-            out /= self.noOfAv #simulate averaging
-        else:
-            for _ in range(self.noOfAv):
-                out += noisyGaussian(self.xx, 1/(self.exposureTime*0.1))
-            out /= self.noOfAv #simulate averaging
-        return out
+        '''Function to request data from the spectrometer with the current GUI settings.'''
+        out = np.zeros_like(self.wavelengths)
+        for _ in range(self.noOfAv):
+            out += self.spec.intensities()
+        return out/self.noOfAv
 
     def _live_loop(self):
         '''The drawing loop that runs in the background. Eventally, will also request data from the spectrometer and draw it.'''
         while self.live:
+            self.spec.integration_time_micros(self.exposureTime*1000)
             self.newestData = self.requestData() #request data from the spectrometer
             self.data.set_ydata(self.newestData) #draw the new data
             self.currMax = np.max(self.newestData)
@@ -210,8 +193,8 @@ class PL_GUI: #The class that contains the GUI. Currently pairs to X data; will 
             y_data = self.newestData
         else: #if not live, request data from the spectrometer
             y_data = self.requestData()
-        static_data = np.array([self.xx, y_data]).transpose() #create the array to save
-        self.ax.plot(self.xx, y_data, label=f"Spectrum {self.staticCount}") #plot the new data
+        static_data = np.array([self.wavelengths, y_data]).transpose() #create the array to save
+        self.ax.plot(self.wavelengths, y_data, label=f"Spectrum {self.staticCount}") #plot the new data
         self.ax.legend()
         self.fig.canvas.draw_idle() #redraw the canvas, including legend
         self.saveCurrentFigure(static_data, fromLive=False) #save the new static figure
